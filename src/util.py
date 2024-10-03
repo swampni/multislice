@@ -1,7 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
-from math import pi, sqrt
+from math import pi, sqrt, cos
+from dataclasses import dataclass
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -14,30 +15,30 @@ def getWavelength(V):
     '''get the wavelength (Angstrom) of the electron with given accelerating voltage (V) '''
     return 12.2643/sqrt(V*(1+0.978476*1e-6*V))
 
-def getFreqGrid(nx, ny, pixelSize):
+def getFreqGrid(nx, ny, pixelSizeX, pixelSizeY):
     '''get the frequency grid for angular spectrum kernel'''
-    kx = torch.fft.fftfreq(nx, d=pixelSize, device=device)
-    ky = torch.fft.fftfreq(ny, d=pixelSize, device=device)
+    kx = torch.fft.fftfreq(nx, d=pixelSizeY, device=device)
+    ky = torch.fft.fftfreq(ny, d=pixelSizeX, device=device)
     kxx, kyy = torch.meshgrid(kx, ky)
     return kxx, kyy
 
 #angular spectrum method modified from https://github.com/mdw771/adorym/blob/master/adorym/propagate.py
-# def getKernel(kxx, kyy, wavelength, zStep):
+# def getKernel(kxx, kyy, wavelength, zStep, tilt):
 #     '''get the kernel for angular spectrum method'''
     
-#     quad = 1 - wavelength**2*(kxx**2+kyy**2)
+#     quad = 1 - wavelength**2*(kxx*(kxx+2*tilt[0])+(kyy+2*tilt[1])*kyy)
 #     quad_inner = torch.clip(quad, 0, None)
 #     kernel = torch.exp(1j*2*pi*zStep/wavelength*torch.sqrt(quad_inner))
 #     kernel[quad<=0] = 0
 #     return kernel
 
-def getKernel(kxx, kyy, wavelength, zStep):
+def getKernel(kxx, kyy, wavelength, zStep, tilt):
     '''get the kernel for fresnel propagation method'''
-    sg = -wavelength/2*(kxx**2+kyy**2)
+    sg = -wavelength/2*((kxx+2*tilt[0])*kxx+(kyy+2*tilt[1])*kyy)                       
     theta = 2*pi*zStep*sg
-    kernel = torch.exp(1j*theta)*torch.exp(torch.tensor(1j*2*pi*zStep/wavelength))
+    kernel = torch.exp(1j*theta)
     
-    # kernel[kxx**2+kyy**2>16/25*(kxx.max())**2] = 0
+    kernel[kxx**2+kyy**2>16/25*(kxx.max())**2] = 0
     return kernel
 
 #display and plotting
@@ -157,3 +158,27 @@ def array2CPU(arr):
         return np.array([toCPU(i) for i in arr])
     shape = arr.shape
     return np.array([toCPU(i) for i in arr.flatten()]).reshape(shape)
+
+@dataclass
+class SimulationCell:
+    '''a class to define the simulation cell'''
+    nx: int # number of pixels in x direction
+    ny: int # number of pixels in y direction
+    cellx: float # size of x direction of computation cell in Angstrom
+    celly: float # size of y direction of computation cell in Angstrom
+    gamma: float # angle between x and y axis in degrees
+
+
+    def __post_init__(self):        
+        self.pixelSizeX = self.cellx/self.nx
+        self.pixelSizeY = self.celly/self.ny
+        self.cosine = cos(self.gamma*pi/180)
+        self.volume = self.cellx*self.celly*sqrt(1 - self.cosine**2)
+        self.reciprocalx = self.celly/self.volume
+        self.reciprocaly = self.cellx/self.volume
+
+
+        
+        
+
+
