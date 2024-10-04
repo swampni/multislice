@@ -7,6 +7,7 @@ import math
 from src.util import device, getWavelength, getFreqGrid, getKernel, toCPU, SimulationCell
 import matplotlib.pyplot as plt
 
+
 class Propagate(nn.Module):
     '''differentiable propagation with fresnel kernel'''
     def __init__(self, kernel, potential=None) -> None:
@@ -105,25 +106,26 @@ class LARBED(MultiSlice):
         print(f'vector1(red): {self.vector1}\nself.vector2(blue): {self.vector2}')
         # Create a grid of points using the two vectors
         grid_points = []
-        for i in range(-4, 5):
-            for j in range(-4, 5):
-                point = i * self.vector1 + j * self.vector2
-                grid_points.append(point)
+        for beam in self.beams:
+            point = beam[0] * self.vector1 + beam[1] * self.vector2
+            grid_points.append(point)
 
         grid_points = np.array(grid_points) + self.center
-
+        self.mask = torch.zeros((self.cell.nx, self.cell.ny), dtype=torch.int64, device=device)
         # plot the grid points on the diffraction pattern with rectangles
         fig, ax = plt.subplots(dpi=300)
         ax.imshow(dp_cpu, cmap='gray', vmax=threshold)
-        for point in grid_points:
+        for idx, point in enumerate(grid_points):
             ax.add_patch(plt.Rectangle((point[1] -5, point[0] -5), 10, 10, edgecolor='white', facecolor='none'))
+            self.mask[point[0]-5:point[0]+5, point[1]-5:point[1]+5] = idx+1
         # plot vector 1 and vector 2
         ax.arrow(self.center[1], self.center[0], self.vector1[1], self.vector1[0], head_width=10, head_length=10, fc='r', ec='r')
         ax.arrow(self.center[1], self.center[0], self.vector2[1], self.vector2[0], head_width=10, head_length=10, fc='r', ec='b')
         plt.show()
         self.setKernel(tilt)
     
-
+    def setIndices(self, v1, v2):
+        self.indices = np.array([beam[0]*v1 + beam[1]*v2 for beam in self.beams])
 
     def forward(self, probe):
         # x = torch.linspace(-self.cell.cellx / 2, self.cell.cellx / 2, self.cell.nx)
@@ -131,17 +133,15 @@ class LARBED(MultiSlice):
         # X, Y = torch.meshgrid(x, y)
         i = torch.arange(-self.nTilt, self.nTilt+1)        
         I, J = torch.meshgrid(i, i)
-        res = torch.zeros((2*self.nTilt+1, 2*self.nTilt+1), dtype=torch.int64, device=device)
-        mask = torch.zeros((1024,1024), dtype=torch.float32, device=device, requires_grad=False)
-        mask[506:518,506:518] = 1
+        res = torch.zeros((len(self.beams)+1, 2*self.nTilt+1, 2*self.nTilt+1), dtype=torch.float32, device=device)
 
         for i,j in zip(I.flatten(), J.flatten()):
             self.setKernel([i*self.tiltStep, j*self.tiltStep])            
             # temp = probe*torch.exp(2j*torch.pi*(X*self.cell.reciprocalx*i*self.tiltStep*+Y*self.cell.reciprocaly*j*self.tiltStep)).to(device)
             # temp = temp/torch.abs(temp)
             exitWave = super().forward(probe)
-            res[i+self.nTilt,j+self.nTilt] = torch.sum(exitWave*mask, )
-        return res
+            res[:,i+self.nTilt,j+self.nTilt].scatter_add_(dim=0, index=self.mask.flatten(), src=exitWave.flatten())
+        return res[1:,:,:]
 
     
 
