@@ -1,6 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.fft as fft
+import numpy as np
+from scipy.signal import find_peaks
 import math
 from src.util import device, getWavelength, getFreqGrid, getKernel, toCPU, SimulationCell
 import matplotlib.pyplot as plt
@@ -51,8 +53,10 @@ class MultiSlice(nn.Module):
         if potential is None:
             self.slices = nn.Sequential(*[Propagate(self.kernel) for i in range(nSlice)])
         else:
+            # phase grating
             if len(potential) == nSlice:                
                 self.slices = nn.Sequential(*[Propagate(self.kernel, potential[i]) for i in range(nSlice)])
+            # repeated potential
             elif nSlice % len(potential) == 0:
                 self.slices = nn.Sequential(*[Propagate(self.kernel, potential[i%len(potential)]) for i in range(nSlice)])
             else:
@@ -78,26 +82,68 @@ class MultiSlice(nn.Module):
 
 class LARBED(MultiSlice):
     '''Large-Angle Rocking Beam Electron Diffraction (LARBED)) simulation'''
-    def __init__(self, simulationCell, zStep, nSlice, kV, nTilt, tiltStep, potential=None, tilt=None) -> None:
+    def __init__(self, simulationCell, zStep, nSlice, kV, nTilt, tiltStep, beams, potential=None, tilt=None) -> None:
         super().__init__(simulationCell, zStep, nSlice, kV, potential, tilt)
         self.nTilt = nTilt
         self.tiltStep = tiltStep
+        self.beams = beams
+
+    def findLattice(self, threshold=1e10):
+        probe = torch.ones(self.cell.nx, self.cell.ny, dtype=torch.complex64, device=device)
+        tilt = self.tilt.detach().clone()
+        self.setKernel(torch.tensor([0.0, 0.0], device=device))
+        dp_cpu = toCPU(super().forward(probe))
+        peaks, _ = find_peaks(dp_cpu.flatten(), height=threshold)
+        peak_coords = np.unravel_index(peaks, dp_cpu.shape)
+        self.center = np.array(dp_cpu.shape)//2
+        dist = np.sum((np.array(peak_coords).T - self.center)**2, axis=1)
+        min_idx = np.argmin(dist)
+        dist = np.sqrt(np.sum((np.array(peak_coords).T - np.array(peak_coords).T[min_idx])**2, axis=1))
+        min_idx = np.argsort(dist)[1:3]
+        self.vector1 = np.array([peak_coords[0][min_idx[0]] - self.center[0], peak_coords[1][min_idx[0]] - self.center[1]])
+        self.vector2 = np.array([peak_coords[0][min_idx[1]] - self.center[0], peak_coords[1][min_idx[1]] - self.center[1]])
+        print(f'vector1(red): {self.vector1}\nself.vector2(blue): {self.vector2}')
+        # Create a grid of points using the two vectors
+        grid_points = []
+        for i in range(-4, 5):
+            for j in range(-4, 5):
+                point = i * self.vector1 + j * self.vector2
+                grid_points.append(point)
+
+        grid_points = np.array(grid_points) + self.center
+
+        # plot the grid points on the diffraction pattern with rectangles
+        fig, ax = plt.subplots(dpi=300)
+        ax.imshow(dp_cpu, cmap='gray', vmax=threshold)
+        for point in grid_points:
+            ax.add_patch(plt.Rectangle((point[1] -5, point[0] -5), 10, 10, edgecolor='white', facecolor='none'))
+        # plot vector 1 and vector 2
+        ax.arrow(self.center[1], self.center[0], self.vector1[1], self.vector1[0], head_width=10, head_length=10, fc='r', ec='r')
+        ax.arrow(self.center[1], self.center[0], self.vector2[1], self.vector2[0], head_width=10, head_length=10, fc='r', ec='b')
+        plt.show()
+        self.setKernel(tilt)
+    
+
 
     def forward(self, probe):
-        x = torch.linspace(-self.cell.cellx / 2, self.cell.cellx / 2, self.cell.nx)
-        y = torch.linspace(-self.cell.celly / 2, self.cell.celly / 2, self.cell.nx)
-        X, Y = torch.meshgrid(x, y)
+        # x = torch.linspace(-self.cell.cellx / 2, self.cell.cellx / 2, self.cell.nx)
+        # y = torch.linspace(-self.cell.celly / 2, self.cell.celly / 2, self.cell.nx)
+        # X, Y = torch.meshgrid(x, y)
         i = torch.arange(-self.nTilt, self.nTilt+1)        
         I, J = torch.meshgrid(i, i)
-        res = torch.zeros_like(I)
+        res = torch.zeros((2*self.nTilt+1, 2*self.nTilt+1), dtype=torch.int64, device=device)
+        mask = torch.zeros((1024,1024), dtype=torch.float32, device=device, requires_grad=False)
+        mask[506:518,506:518] = 1
+
         for i,j in zip(I.flatten(), J.flatten()):
             self.setKernel([i*self.tiltStep, j*self.tiltStep])            
             # temp = probe*torch.exp(2j*torch.pi*(X*self.cell.reciprocalx*i*self.tiltStep*+Y*self.cell.reciprocaly*j*self.tiltStep)).to(device)
             # temp = temp/torch.abs(temp)
             exitWave = super().forward(probe)
-            res[i+self.nTilt,j+self.nTilt] = torch.sum(exitWave[506:518,466:478])
+            res[i+self.nTilt,j+self.nTilt] = torch.sum(exitWave*mask, )
         return res
 
+    
 
 #define loss functions
 def complexMSELoss(input, target):
