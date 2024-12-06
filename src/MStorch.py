@@ -94,6 +94,7 @@ class LARBED(MultiSlice):
         tilt = self.tilt.detach().clone()
         self.setKernel(torch.tensor([0.0, 0.0], device=device))
         dp_cpu = toCPU(super().forward(probe))
+        self.SAED = dp_cpu
         peaks, _ = find_peaks(dp_cpu.flatten(), height=threshold)
         peak_coords = np.unravel_index(peaks, dp_cpu.shape)
         self.center = np.array(dp_cpu.shape)//2
@@ -101,8 +102,10 @@ class LARBED(MultiSlice):
         min_idx = np.argmin(dist)
         dist = np.sqrt(np.sum((np.array(peak_coords).T - np.array(peak_coords).T[min_idx])**2, axis=1))
         min_idx = np.argsort(dist)[1:3]
-        self.vector1 = np.array([peak_coords[0][min_idx[0]] - self.center[0], peak_coords[1][min_idx[0]] - self.center[1]])
-        self.vector2 = np.array([peak_coords[0][min_idx[1]] - self.center[0], peak_coords[1][min_idx[1]] - self.center[1]])
+        # self.vector1 = np.array([peak_coords[0][min_idx[0]] - self.center[0], peak_coords[1][min_idx[0]] - self.center[1]])
+        # self.vector2 = np.array([peak_coords[0][min_idx[1]] - self.center[0], peak_coords[1][min_idx[1]] - self.center[1]])
+        self.vector1 = np.array([-26,-19])
+        self.vector2 = np.array([-26,19])
         print(f'vector1(red): {self.vector1}\nself.vector2(blue): {self.vector2}')
         # Create a grid of points using the two vectors
         grid_points = []
@@ -121,7 +124,7 @@ class LARBED(MultiSlice):
         # plot vector 1 and vector 2
         ax.arrow(self.center[1], self.center[0], self.vector1[1], self.vector1[0], head_width=10, head_length=10, fc='r', ec='r')
         ax.arrow(self.center[1], self.center[0], self.vector2[1], self.vector2[0], head_width=10, head_length=10, fc='r', ec='b')
-        plt.show()
+        # plt.show()
         self.setKernel(tilt)
     
     def setIndices(self, v1, v2):
