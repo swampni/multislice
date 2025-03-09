@@ -1,6 +1,6 @@
 import numpy as np
 from pathlib import Path
-
+import matplotlib.pyplot as plt
 
 def MDtoDAT(filename):    
     with open(filename, 'r') as f:
@@ -19,19 +19,29 @@ def MDtoDAT(filename):
     data[data[:,2]<0,2] += dim[1]
     data[:,2] /= dim[1]
 
+    data[:,3] += dim[2] / 208 /2
     data[data[:,3]<0,3] += dim[2]
-    data[:,3] /= dim[2]
+    data = data[data[:,3]<=dim[2]/208*200]
+    data[:,3] /= dim[2]/208*200
+    # data[:,3] = data[:,3] - data[:,3].min()
 
-    output = np.ones((natoms, 5))
+    output = np.ones((len(data), 5))
     output[:, :4] = data
 
+    # edges, bins = np.histogram(data[:,3],bins=200, range=(0,1))
+    # plt.plot(bins[:-1], edges, 'o')
+    # plt.show()
+
+    # if data.shape[0] != natoms:
+    #     print('Error: natoms not match')
+    #     return
     
-    if data.shape[0] != natoms:
-        print('Error: natoms not match')
-        return
+    
+        
+    
     
     header = '''{} {} 90.0000 {}
-    {}'''.format(dim[0], dim[1], dim[2], natoms)
+    {}'''.format(dim[0], dim[1], dim[2]/208*200, len(output))
     output_filename = filename.with_suffix('.dat')
     np.savetxt(output_filename, output, delimiter='\t', header=header, comments='', fmt='%d\t%.7f\t%.7f\t%.7f\t%d')
 
@@ -39,7 +49,7 @@ def MDtoDAT(filename):
         ms_lines = ms_file.readlines()
     
     ms_lines[4] = f'{output_filename}\n'
-    ms_lines[15] = f'-0.000001 {dim[2]} 200 1\n'
+    ms_lines[15] = f'-0.000001 {dim[2]/208*200} 200 1\n'
     
     with open(filename.with_suffix('.ms'), 'w') as ms_file:
         ms_file.writelines(ms_lines)
@@ -48,12 +58,9 @@ def MDtoDAT(filename):
 
 
 if __name__ == "__main__":
-    txt_files = Path('MD').rglob('relaxed*.txt')
+    txt_files = Path(r'MD\Si_V_strain_20241209-1\manual_add_V').rglob('Si*.txt')
     for txt_file in txt_files:
-        # MDtoDAT(txt_file)
+        MDtoDAT(txt_file)
         
-        parent_dir = txt_file.parent.name
-        last_part = txt_file.stem
-        path_object = Path(f'{parent_dir}/{last_part}')
-        print(path_object.with_suffix('.npy'))
+   
     
