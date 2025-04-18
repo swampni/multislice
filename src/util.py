@@ -6,9 +6,9 @@ from dataclasses import dataclass
 
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-print(f"using {device}")
+print(f"device: using {device}")
 torch.set_default_dtype(torch.float32)
-print(f"using {torch.get_default_dtype()}")
+print(f"default datatype: using {torch.get_default_dtype()}")
 
 
 

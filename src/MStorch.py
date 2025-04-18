@@ -16,7 +16,7 @@ class Propagate(nn.Module):
         self.kernel = kernel        
         
         if potential is None:
-            # initialize with a random phase object            
+            # initialize with a transparent phase object            
             self.object = nn.Parameter(torch.ones_like(kernel, device=device))
         else:
             # initialize with a know potential (phase grating) 
@@ -96,16 +96,17 @@ class MultiSlice(nn.Module):
         exitWave = probe
         with torch.no_grad():   
             if output:
-                res = torch.empty((len(output), self.cell.nx, self.cell.ny), dtype=torch.float32, device=device)
-                for i in range(self.nSlice-1):
+                res = torch.ones((len(output), self.cell.nx, self.cell.ny), dtype=torch.float32, device=device)
+                for i in range(self.nSlice):
                     if i in output:
                         temp = self.slices[i](exitWave, propagate=False)
                         # res.append(torch.abs(torch.fft.fftshift(torch.fft.fft2(temp)))**2)
                         res[output.index(i)] = torch.abs(torch.fft.fftshift(torch.fft.fft2(temp)))**2
-                    else:
-                        exitWave = self.slices[i](exitWave)                
                     if i == output[-1]:
-                        return res
+                        break
+                    exitWave = self.slices[i](exitWave)                
+                    
+                return res
             else:
                 for i in range(self.nSlice-1):
                     exitWave = self.slices[i](exitWave)
@@ -113,7 +114,7 @@ class MultiSlice(nn.Module):
                 #don't propagate for the last slice
                 exitWave = self.slices[-1](exitWave, propagate=False)
                 # return the diffraction pattern intensity
-                return torch.abs(torch.fft.fftshift(torch.fft.fft2(exitWave)))**2
+                return (torch.abs(torch.fft.fftshift(torch.fft.fft2(exitWave)))**2)
 
     
     def setKernel(self, tilt):
@@ -266,14 +267,15 @@ class SED(MultiSlice):
         probeY = np.arange(0., self.scanSize[1] - 1e-7, self.scanSize[1]/self.nStep[1])
         X, Y = np.meshgrid(probeX, probeY)
         probePos = np.stack((Y.flatten(), X.flatten()), axis=1)
-
-        res = torch.empty((len(probePos), self.cell.nx, self.cell.ny), dtype=torch.float32, device=device)
+        if output:
+            res = torch.ones((len(probePos),len(output), self.cell.nx, self.cell.ny), dtype=torch.float32, device=device)
+        else:
+            res = torch.ones((len(probePos), self.cell.nx, self.cell.ny), dtype=torch.float32, device=device)
         
         for idx, pos in enumerate(probePos):
             scanProbe = torch.roll(probe, (int(np.round(pos[0]*self.cell.nx)), int(np.round(pos[1]*self.cell.ny))), dims=(0,1))
-            print((int(np.round(pos[0]*self.cell.nx)), int(np.round(pos[1]*self.cell.ny))))
-            res[idx] = super().simulate(scanProbe, output)
-        res = res.reshape(self.nStep[1], self.nStep[0], self.cell.nx, self.cell.ny)
+            res[idx,...] = super().simulate(scanProbe, output)
+        res = torch.squeeze(res.reshape(self.nStep[1], self.nStep[0], -1, self.cell.nx, self.cell.ny), dim=2)
         return res
             
 

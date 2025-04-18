@@ -112,12 +112,13 @@ def readPhaseGrating(pgFileName, mesh, nSlice):
 
 if __name__ == '__main__':
     import matplotlib.pyplot as plt
-    filename = r'C:\Users\hcni2\Box\ZuoLab\active dopant\LARBED\multislice\temp.pg'
-    pg = readPhaseGrating(filename, [1024, 1024], 200)
-    plt.imshow(np.abs(pg[0, :, :]), vmax=1)
-    # wfStack, fileHeader = wfRead(filename)
-    # print(wfStack.shape)
+    filename = r'C:\Users\markn\Box\ZuoLab\probe.wf'
+    # pg = readPhaseGrating(filename, [1024, 1024], 200)
+    # plt.imshow(np.abs(pg[0, :, :]), vmax=1)
+    wfStack, fileHeader = wfRead(filename, totSlice=1)
+    print(wfStack.shape)
     # print(fileHeader)
     # print(wfStack.dtype)
     # plt.imshow(np.abs((wfStack[0,:,:])), vmax=1, vmin=0)
+    
     plt.show()
